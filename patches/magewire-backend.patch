@@ -1,0 +1,290 @@
+From caaf07f3b293b002ef704c04d0f2f3208bd35aeb Mon Sep 17 00:00:00 2001
+From: Michiel Gerritsen <michiel@controlaltdelete.nl>
+Date: Tue, 7 Nov 2023 08:58:57 +0100
+Subject: [PATCH] Feature: Support Magewire in the backend
+
+---
+ src/etc/di.xml                                | 58 +++++++++++++++
+ src/etc/events.xml                            | 18 +++++
+ src/etc/frontend/di.xml                       | 62 ----------------
+ src/etc/frontend/events.xml                   | 14 ----
+ src/view/base/layout/default.xml              | 72 +++++++++++++++++++
+ .../{frontend => base}/web/js/livewire.js     |  0
+ .../{frontend => base}/web/js/livewire.js.map |  0
+ 7 files changed, 148 insertions(+), 76 deletions(-)
+ create mode 100644 src/etc/events.xml
+ delete mode 100644 src/etc/frontend/di.xml
+ create mode 100644 src/view/base/layout/default.xml
+ rename src/view/{frontend => base}/web/js/livewire.js (100%)
+ rename src/view/{frontend => base}/web/js/livewire.js.map (100%)
+
+diff --git a/src/etc/di.xml b/src/etc/di.xml
+index 2040378..c436b5c 100644
+--- a/src/etc/di.xml
++++ b/src/etc/di.xml
+@@ -14,4 +14,62 @@
+             </argument>
+         </arguments>
+     </type>
++
++    <type name="Magewirephp\Magewire\Model\ComponentManager">
++        <arguments>
++            <argument name="updateActionsPool" xsi:type="array">
++                <item name="callMethod" xsi:type="object">Magewirephp\Magewire\Model\Action\CallMethod</item>
++                <item name="fireEvent" xsi:type="object">Magewirephp\Magewire\Model\Action\FireEvent</item>
++                <item name="syncInput" xsi:type="object">Magewirephp\Magewire\Model\Action\SyncInput</item>
++            </argument>
++        </arguments>
++
++        <!-- Execute lifecycle methods -->
++        <plugin name="Magewirephp_Magewire_Plugin_Model_ComponentManager"
++                type="Magewirephp\Magewire\Plugin\Model\ComponentManager"
++                sortOrder="50"/>
++    </type>
++
++    <type name="Magewirephp\Magewire\Model\Action\CallMethod">
++        <arguments>
++            <!-- Define public methods as protected to avoid being called on a subsequent request -->
++            <argument name="uncallableMethods" xsi:type="array">
++                <!-- Lifecycle -->
++                <item name="10" xsi:type="string">mount</item>
++                <item name="11" xsi:type="string">hydrate</item>
++                <item name="12" xsi:type="string">dehydrate</item>
++                <item name="13" xsi:type="string">updating</item>
++                <item name="14" xsi:type="string">updated</item>
++
++                <!-- Base Component -->
++                <item name="15" xsi:type="string">getParent</item>
++                <item name="16" xsi:type="string">setParent</item>
++                <item name="17" xsi:type="string">getPublicProperties</item>
++                <item name="18" xsi:type="string">__call</item>
++
++                <!-- Concerns -->
++                <item name="19" xsi:type="string">setRequest</item>
++                <item name="20" xsi:type="string">getRequest</item>
++                <item name="21" xsi:type="string">setResponse</item>
++                <item name="22" xsi:type="string">getResponse</item>
++                <item name="23" xsi:type="string">getEventQueue</item>
++                <item name="24" xsi:type="string">getUncallables</item>
++
++                <!-- Pagination -->
++                <item name="26" xsi:type="string">renderPagination</item>
++
++                <item name="27" xsi:type="string">fill</item>
++                <item name="28" xsi:type="string">reset</item>
++
++                <!-- Forms -->
++                <item name="29" xsi:type="string">validate</item>
++            </argument>
++        </arguments>
++    </type>
++
++    <type name="Magento\Framework\View\TemplateEngine\Php">
++        <!-- Automatically assign $magewire as template Block variable -->
++        <plugin name="Magewirephp_Magewire_Plugin_Magento_Framework_View_TemplateEngine_Php"
++                type="Magewirephp\Magewire\Plugin\Magento\Framework\View\TemplateEngine\Php"/>
++    </type>
+ </config>
+diff --git a/src/etc/events.xml b/src/etc/events.xml
+new file mode 100644
+index 0000000..1bb68ac
+--- /dev/null
++++ b/src/etc/events.xml
+@@ -0,0 +1,18 @@
++<?xml version="1.0"?>
++<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++        xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd"
++>
++    <event name="view_block_abstract_to_html_before">
++        <!-- As close as possible before rendering -->
++        <observer name="MagewirephpMagewireViewBlockAbstractToHtmlBefore"
++                  instance="Magewirephp\Magewire\Observer\Frontend\ViewBlockAbstractToHtmlBefore"
++        />
++    </event>
++
++    <event name="view_block_abstract_to_html_after">
++        <!-- As close as possible after rendering -->
++        <observer name="MagewirephpMagewireViewBlockAbstractToHtmlAfter"
++                  instance="Magewirephp\Magewire\Observer\Frontend\ViewBlockAbstractToHtmlAfter"
++        />
++    </event>
++</config>
+diff --git a/src/etc/frontend/di.xml b/src/etc/frontend/di.xml
+deleted file mode 100644
+index 3de8a43..0000000
+--- a/src/etc/frontend/di.xml
++++ /dev/null
+@@ -1,62 +0,0 @@
+-<?xml version="1.0"?>
+-<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+-        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd"
+->
+-    <type name="Magewirephp\Magewire\Model\ComponentManager">
+-        <arguments>
+-            <argument name="updateActionsPool" xsi:type="array">
+-                <item name="callMethod" xsi:type="object">Magewirephp\Magewire\Model\Action\CallMethod</item>
+-                <item name="fireEvent" xsi:type="object">Magewirephp\Magewire\Model\Action\FireEvent</item>
+-                <item name="syncInput" xsi:type="object">Magewirephp\Magewire\Model\Action\SyncInput</item>
+-            </argument>
+-        </arguments>
+-
+-        <!-- Execute lifecycle methods -->
+-        <plugin name="Magewirephp_Magewire_Plugin_Model_ComponentManager"
+-                type="Magewirephp\Magewire\Plugin\Model\ComponentManager"
+-                sortOrder="50"/>
+-    </type>
+-
+-    <type name="Magewirephp\Magewire\Model\Action\CallMethod">
+-        <arguments>
+-            <!-- Define public methods as protected to avoid being called on a subsequent request -->
+-            <argument name="uncallableMethods" xsi:type="array">
+-                <!-- Lifecycle -->
+-                <item name="10" xsi:type="string">mount</item>
+-                <item name="11" xsi:type="string">hydrate</item>
+-                <item name="12" xsi:type="string">dehydrate</item>
+-                <item name="13" xsi:type="string">updating</item>
+-                <item name="14" xsi:type="string">updated</item>
+-
+-                <!-- Base Component -->
+-                <item name="15" xsi:type="string">getParent</item>
+-                <item name="16" xsi:type="string">setParent</item>
+-                <item name="17" xsi:type="string">getPublicProperties</item>
+-                <item name="18" xsi:type="string">__call</item>
+-
+-                <!-- Concerns -->
+-                <item name="19" xsi:type="string">setRequest</item>
+-                <item name="20" xsi:type="string">getRequest</item>
+-                <item name="21" xsi:type="string">setResponse</item>
+-                <item name="22" xsi:type="string">getResponse</item>
+-                <item name="23" xsi:type="string">getEventQueue</item>
+-                <item name="24" xsi:type="string">getUncallables</item>
+-
+-                <!-- Pagination -->
+-                <item name="26" xsi:type="string">renderPagination</item>
+-
+-                <item name="27" xsi:type="string">fill</item>
+-                <item name="28" xsi:type="string">reset</item>
+-
+-                <!-- Forms -->
+-                <item name="29" xsi:type="string">validate</item>
+-            </argument>
+-        </arguments>
+-    </type>
+-
+-    <type name="Magento\Framework\View\TemplateEngine\Php">
+-        <!-- Automatically assign $magewire as template Block variable -->
+-        <plugin name="Magewirephp_Magewire_Plugin_Magento_Framework_View_TemplateEngine_Php"
+-                type="Magewirephp\Magewire\Plugin\Magento\Framework\View\TemplateEngine\Php"/>
+-    </type>
+-</config>
+diff --git a/src/etc/frontend/events.xml b/src/etc/frontend/events.xml
+index 4addec5..b336bff 100644
+--- a/src/etc/frontend/events.xml
++++ b/src/etc/frontend/events.xml
+@@ -2,20 +2,6 @@
+ <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd"
+ >
+-    <event name="view_block_abstract_to_html_before">
+-        <!-- As close as possible before rendering -->
+-        <observer name="MagewirephpMagewireViewBlockAbstractToHtmlBefore"
+-                  instance="Magewirephp\Magewire\Observer\Frontend\ViewBlockAbstractToHtmlBefore"
+-        />
+-    </event>
+-
+-    <event name="view_block_abstract_to_html_after">
+-        <!-- As close as possible after rendering -->
+-        <observer name="MagewirephpMagewireViewBlockAbstractToHtmlAfter"
+-                  instance="Magewirephp\Magewire\Observer\Frontend\ViewBlockAbstractToHtmlAfter"
+-        />
+-    </event>
+-
+     <event name="hyva_config_generate_before">
+         <!-- Hyvä Themes compatibility: Registering a module for inclusion in hyva-themes.json -->
+         <!-- @see https://docs.hyva.io/hyva-themes/compatibility-modules/tailwind-config-merging.html -->
+diff --git a/src/view/base/layout/default.xml b/src/view/base/layout/default.xml
+new file mode 100644
+index 0000000..3f56318
+--- /dev/null
++++ b/src/view/base/layout/default.xml
+@@ -0,0 +1,72 @@
++<?xml version="1.0"?>
++<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd"
++>
++    <body>
++        <referenceContainer name="before.body.end">
++<!--            <block name="magewire.livewire"-->
++<!--                   before="script-alpine-js"-->
++<!--                   template="Magewirephp_Magewire::page/js/magewire-livewire.phtml">-->
++<!--                <arguments>-->
++<!--                    <argument name="view_model" xsi:type="object">-->
++<!--                        Magewirephp\Magewire\ViewModel\Magewire-->
++<!--                    </argument>-->
++<!--                </arguments>-->
++<!--            </block>-->
++
++<!--            <block name="magewire.initialize"-->
++<!--                   after="magewire.livewire"-->
++<!--                   template="Magewirephp_Magewire::page/js/magewire-initialize.phtml"-->
++<!--            >-->
++<!--                <arguments>-->
++<!--                    <argument name="view_model" xsi:type="object">-->
++<!--                        Magewirephp\Magewire\ViewModel\Magewire-->
++<!--                    </argument>-->
++<!--                </arguments>-->
++
++<!--                <container name="magewire.plugin.scripts" as="magewire.plugins">-->
++<!--                    &lt;!&ndash; Inject the Magewire core Loader plugin &ndash;&gt;-->
++<!--                    <block name="magewire.plugin.loader"-->
++<!--                           ifconfig="dev/magewire/loader/enable"-->
++<!--                           template="Magewirephp_Magewire::page/js/magewire/plugin/loader.phtml">-->
++<!--                        <arguments>-->
++<!--                            <argument name="view_model" xsi:type="object">-->
++<!--                                Magewirephp\Magewire\ViewModel\Magewire-->
++<!--                            </argument>-->
++<!--                        </arguments>-->
++<!--                    </block>-->
++
++<!--                    <block name="magewire.plugin.error"-->
++<!--                           template="Magewirephp_Magewire::page/js/magewire/plugin/error.phtml"-->
++<!--                    >-->
++<!--                        <arguments>-->
++<!--                            <argument name="view_model" xsi:type="object">-->
++<!--                                Magewirephp\Magewire\ViewModel\Magewire-->
++<!--                            </argument>-->
++
++<!--                            &lt;!&ndash; Specify specific messages for each HTTP status code. &ndash;&gt;-->
++<!--                            <argument name="status_messages" xsi:type="array">-->
++<!--                                <item name="419" xsi:type="string">-->
++<!--                                    The session has expired. Therefore, the page will be refreshed when you confirm.-->
++<!--                                </item>-->
++<!--                            </argument>-->
++<!--                        </arguments>-->
++<!--                    </block>-->
++<!--                </container>-->
++
++<!--                <container name="magewire.directive.scripts" as="magewire.directives">-->
++<!--                    <block name="magewire.directive.select"-->
++<!--                           template="Magewirephp_Magewire::page/js/magewire/directive/select.phtml"/>-->
++<!--                </container>-->
++
++<!--                <container name="magewire.extend.scripts" as="magewire.extends">-->
++<!--                    <block name="magewire.extend.plugin"-->
++<!--                           template="Magewirephp_Magewire::page/js/magewire/extend/plugin.phtml"/>-->
++<!--                </container>-->
++<!--            </block>-->
++        </referenceContainer>
++
++        <!-- Global Magewire pager placeholder -->
++        <block name="magewire.pagination.pager"/>
++    </body>
++</page>
+diff --git a/src/view/frontend/web/js/livewire.js b/src/view/base/web/js/livewire.js
+similarity index 100%
+rename from src/view/frontend/web/js/livewire.js
+rename to src/view/base/web/js/livewire.js
+diff --git a/src/view/frontend/web/js/livewire.js.map b/src/view/base/web/js/livewire.js.map
+similarity index 100%
+rename from src/view/frontend/web/js/livewire.js.map
+rename to src/view/base/web/js/livewire.js.map
