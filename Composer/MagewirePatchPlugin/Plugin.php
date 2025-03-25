@@ -78,7 +78,7 @@ class Plugin implements PluginInterface, EventSubscriberInterface
         if ($exitCode === 0) {
             $io->write("<info>✅ Magewire patch succesvol toegepast.</info>");
         } else {
-            $io->writeError("<error>⚠️ Magewire patch toepassen mislukt of al eerder toegepast.</error>");
+            $io->write("<comment>⚠️ Magewire patch is mogelijk al toegepast of kon niet worden toegepast. Controleer handmatig indien nodig.</comment>");
         }
     }
 }
