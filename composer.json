@@ -7,6 +7,13 @@
     "require": {
         "composer-plugin-api": "^2.0"
     },
+    "authors": [
+        {
+            "name": "Rick Bouma",
+            "email": "r.bouma@disrex.nl",
+            "role": "Developer"
+        }
+    ],
     "autoload": {
         "psr-4": {
             "Composer\\MagewirePatchPlugin\\": "Composer/MagewirePatchPlugin/"
