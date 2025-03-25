@@ -2,6 +2,7 @@
     "name": "disrex/magewire-backend-patcher",
     "type": "composer-plugin",
     "description": "Applies Magewire backend patch automatically when used with Magewire",
+    "version": "1.0.0",
     "license": "MIT",
     "require": {
         "composer-plugin-api": "^2.0"
