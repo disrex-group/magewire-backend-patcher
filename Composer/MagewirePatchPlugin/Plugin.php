@@ -34,6 +34,16 @@ class Plugin implements PluginInterface, EventSubscriberInterface
         // Nothing needed on activate for now
     }
 
+    public function deactivate(Composer $composer, IOInterface $io)
+    {
+        // Optional cleanup logic, not needed here
+    }
+
+    public function uninstall(Composer $composer, IOInterface $io)
+    {
+        // Optional uninstall logic, not needed here
+    }
+
     public static function getSubscribedEvents(): array
     {
         return [
