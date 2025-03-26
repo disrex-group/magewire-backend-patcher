@@ -47,38 +47,46 @@ class Plugin implements PluginInterface, EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            'post-install-cmd' => 'applyMagewirePatch',
-            'post-update-cmd' => 'applyMagewirePatch'
+            'post-install-cmd' => 'applyMagewirePatches',
+            'post-update-cmd' => 'applyMagewirePatches'
         ];
     }
 
-    public function applyMagewirePatch(Event $event): void
+    public function applyMagewirePatches(Event $event): void
     {
         $io = $event->getIO();
-
         $rootDir = getcwd();
-        $patchPath = $rootDir . '/vendor/disrex/magewire-backend-patcher/patches/magewire-backend.patch';
         $targetPath = $rootDir . '/vendor/magewirephp/magewire';
 
-        if (!file_exists($patchPath)) {
-            $io->writeError("<error>❌ Patchbestand niet gevonden: $patchPath</error>");
-            return;
-        }
-
         if (!is_dir($targetPath)) {
-            $io->writeError("<error>❌ magewirephp/magewire niet gevonden op: $targetPath</error>");
+            $io->writeError("<error>❌ magewirephp/magewire not found at: $targetPath</error>");
             return;
         }
 
-        $io->write("<info>⚙️ Patch toepassen op magewirephp/magewire...</info>");
+        // List of all patches to apply
+        $patches = [
+            'magewire-backend.patch',
+            'magewire-backend-2.patch',
+        ];
 
-        $cmd = "patch -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath);
-        exec($cmd, $output, $exitCode);
+        foreach ($patches as $patchFile) {
+            $patchPath = $rootDir . "/vendor/disrex/magewire-backend-patcher/patches/$patchFile";
 
-        if ($exitCode === 0) {
-            $io->write("<info>✅ Magewire patch succesvol toegepast.</info>");
-        } else {
-            $io->write("<comment>⚠️ Magewire patch is mogelijk al toegepast of kon niet worden toegepast. Controleer handmatig indien nodig.</comment>");
+            if (!file_exists($patchPath)) {
+                $io->writeError("<error>❌ Patch file not found: $patchPath</error>");
+                continue;
+            }
+
+            $io->write("<info>⚙️ Applying patch: $patchFile...</info>");
+
+            $cmd = "patch -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath);
+            exec($cmd, $output, $exitCode);
+
+            if ($exitCode === 0) {
+                $io->write("<info>✅ Successfully applied: $patchFile</info>");
+            } else {
+                $io->write("<comment>⚠️ Patch '$patchFile' may already be applied or failed. Please verify manually if needed.</comment>");
+            }
         }
     }
 }
