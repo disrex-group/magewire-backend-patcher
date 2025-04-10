@@ -77,16 +77,6 @@ class Plugin implements PluginInterface, EventSubscriberInterface
                 continue;
             }
 
-            // For the file-moving patch, skip if already done
-            if ($patchFile === 'magewire-backend-2.patch') {
-                $newFilePath = $targetPath . '/src/view/base/templates/component/exception.phtml';
-                $oldFilePath = $targetPath . '/src/view/frontend/templates/component/exception.phtml';
-                
-                if (file_exists($newFilePath) && !file_exists($oldFilePath)) {
-                    continue;
-                }
-            }
-
             // Check if patch command is available
             exec('patch --version 2>&1', $patchVersionOutput, $patchVersionExitCode);
             if ($patchVersionExitCode !== 0) {
@@ -94,33 +84,44 @@ class Plugin implements PluginInterface, EventSubscriberInterface
                 return;
             }
 
-            // Different systems have different patch versions with different options
-            $dryRunOption = '--dry-run';
-            foreach ($patchVersionOutput as $line) {
-                // GNU patch supports --dry-run, but some versions don't
-                if (strpos($line, 'GNU patch') === false) {
-                    // Fallback for non-GNU patch (like on some macOS/BSD versions)
-                    $dryRunOption = '--check';
-                    break;
+            // Special handling for the file-moving patch
+            if ($patchFile === 'magewire-backend-2.patch') {
+                $newFilePath = $targetPath . '/src/view/base/templates/component/exception.phtml';
+                $oldFilePath = $targetPath . '/src/view/frontend/templates/component/exception.phtml';
+                
+                // If files already moved, skip patch check
+                if (file_exists($newFilePath) && !file_exists($oldFilePath)) {
+                    continue;
+                }
+                
+                // For file-moving patches, the reverse check might not work correctly
+                // Just apply the patch directly if the file hasn't been moved yet
+                if (file_exists($oldFilePath) && !file_exists($newFilePath)) {
+                    $io->write("<info>⚙️ Applying patch: $patchFile...</info>");
+                    
+                    $cmd = "patch -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath);
+                    exec($cmd . " 2>&1", $output, $exitCode);
+                    
+                    if ($exitCode === 0) {
+                        $io->write("<info>✅ Successfully applied: $patchFile</info>");
+                    } else {
+                        $io->writeError("<error>❌ Failed to apply file-moving patch. Manual intervention required.</error>");
+                        foreach ($output as $line) {
+                            $io->writeError("  $line");
+                        }
+                    }
+                    
+                    continue;
                 }
             }
 
-            // First run a dry-run to check if the patch needs to be applied
-            $dryRunCmd = "patch {$dryRunOption} -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath);
-            exec($dryRunCmd . " 2>&1", $dryRunOutput, $dryRunExitCode);
+            // Check if the patch is already applied using the reverse check method
+            // This is more reliable than looking for text patterns in the output
+            $checkCmd = "patch -R -s -f --dry-run -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath) . " 2>/dev/null";
+            exec($checkCmd, $output, $reverseExitCode);
             
-            // Check if patch is already applied
-            $alreadyApplied = false;
-            foreach ($dryRunOutput as $line) {
-                if (strpos($line, 'already applied') !== false || 
-                    strpos($line, 'skipping patch') !== false ||
-                    strpos($line, 'Reversed (or previously applied)') !== false) {
-                    $alreadyApplied = true;
-                    break;
-                }
-            }
-            
-            if ($alreadyApplied) {
+            // If reverse patch would apply cleanly, it means the patch is already applied
+            if ($reverseExitCode === 0) {
                 continue;
             }
             
