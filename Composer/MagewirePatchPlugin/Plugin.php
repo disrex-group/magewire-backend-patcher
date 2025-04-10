@@ -77,15 +77,90 @@ class Plugin implements PluginInterface, EventSubscriberInterface
                 continue;
             }
 
+            // For the file-moving patch, skip if already done
+            if ($patchFile === 'magewire-backend-2.patch') {
+                $newFilePath = $targetPath . '/src/view/base/templates/component/exception.phtml';
+                $oldFilePath = $targetPath . '/src/view/frontend/templates/component/exception.phtml';
+                
+                if (file_exists($newFilePath) && !file_exists($oldFilePath)) {
+                    continue;
+                }
+            }
+
+            // Check if patch command is available
+            exec('patch --version 2>&1', $patchVersionOutput, $patchVersionExitCode);
+            if ($patchVersionExitCode !== 0) {
+                $io->writeError("<error>❌ The 'patch' command is not available on your system.</error>");
+                return;
+            }
+
+            // Different systems have different patch versions with different options
+            $dryRunOption = '--dry-run';
+            foreach ($patchVersionOutput as $line) {
+                // GNU patch supports --dry-run, but some versions don't
+                if (strpos($line, 'GNU patch') === false) {
+                    // Fallback for non-GNU patch (like on some macOS/BSD versions)
+                    $dryRunOption = '--check';
+                    break;
+                }
+            }
+
+            // First run a dry-run to check if the patch needs to be applied
+            $dryRunCmd = "patch {$dryRunOption} -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath);
+            exec($dryRunCmd . " 2>&1", $dryRunOutput, $dryRunExitCode);
+            
+            // Check if patch is already applied
+            $alreadyApplied = false;
+            foreach ($dryRunOutput as $line) {
+                if (strpos($line, 'already applied') !== false || 
+                    strpos($line, 'skipping patch') !== false ||
+                    strpos($line, 'Reversed (or previously applied)') !== false) {
+                    $alreadyApplied = true;
+                    break;
+                }
+            }
+            
+            if ($alreadyApplied) {
+                continue;
+            }
+            
+            // Only show applying message and apply patch if not already applied
             $io->write("<info>⚙️ Applying patch: $patchFile...</info>");
 
             $cmd = "patch -p1 -d " . escapeshellarg($targetPath) . " < " . escapeshellarg($patchPath);
-            exec($cmd, $output, $exitCode);
+            exec($cmd . " 2>&1", $output, $exitCode);
 
+            // Only show success message if patch actually made changes
+            $changesApplied = false;
             if ($exitCode === 0) {
-                $io->write("<info>✅ Successfully applied: $patchFile</info>");
+                foreach ($output as $line) {
+                    if (strpos($line, 'patching file') !== false) {
+                        $changesApplied = true;
+                        break;
+                    }
+                }
+                
+                if ($changesApplied) {
+                    $io->write("<info>✅ Successfully applied: $patchFile</info>");
+                }
             } else {
-                $io->write("<comment>⚠️ Patch '$patchFile' may already be applied or failed. Please verify manually if needed.</comment>");
+                // Show error messages if the patch failed (not due to already being applied)
+                $alreadyApplied = false;
+                foreach ($output as $line) {
+                    if (strpos($line, 'already applied') !== false || 
+                        strpos($line, 'skipping patch') !== false ||
+                        strpos($line, 'Reversed (or previously applied)') !== false) {
+                        $alreadyApplied = true;
+                        break;
+                    }
+                }
+                
+                if (!$alreadyApplied) {
+                    $io->writeError("<error>❌ Failed to apply patch '$patchFile':</error>");
+                    foreach ($output as $line) {
+                        $io->writeError("  $line");
+                    }
+                }
             }
         }
     }
